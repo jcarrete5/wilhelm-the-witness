@@ -1,40 +1,44 @@
 package main
 
 import (
-	"fmt"
-	"os"
-	"time"
 	"github.com/bwmarrin/discordgo"
+	"log"
+	"os"
+	"os/signal"
 )
 
-func main() {
-	token := os.Getenv("TOKEN")
-	discord, err := discordgo.New("Bot " + token)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+var (
+	token   = os.Getenv("TOKEN")
+	discord *discordgo.Session
+	quit    = make(chan os.Signal)
+)
 
-	err = discord.Open()
+func init() {
+	if token == "" {
+		log.Fatalln("TOKEN environment variable not specified")
+	}
+	s, err := discordgo.New("Bot " + token)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		log.Fatalln(err)
+	}
+	discord = s
+	signal.Notify(quit, os.Interrupt)
+}
+
+func onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+	log.Println(m)
+}
+
+func main() {
+	discord.Identify.Intents = discordgo.IntentsGuildVoiceStates |
+		discordgo.IntentsDirectMessages |
+		discordgo.IntentsGuildMessages
+	if err := discord.Open(); err != nil {
+		panic(err)
 	}
 	defer discord.Close()
 
-	const channelID = "525449096006467620"
-	const guildID = "525449096006467614"
-	vc, err := discord.ChannelVoiceJoin(guildID, channelID, true, true)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	discord.AddHandler(onMessage)
 
-	time.Sleep(10 * time.Second)
-
-	err = vc.Disconnect()
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	log.Println(<-quit)
 }
