@@ -1,0 +1,26 @@
+#!/bin/sh
+# Run migrations for the database in lexicographic order.
+
+confirm() {
+    # Returns 0 (true) if not confirmed and 1 (false) if confirmed
+    default=$1  # Default should only be 'y', 'Y', 'n', or 'N'
+    prompt=$2   # Question string
+
+    [ $default = y -o $default = Y ] && options='[Y/n]' || options='[y/N]'
+    echo -n "$prompt $options "
+    read -r resp
+    resp="${resp:-$default}"
+    [ "$resp" = y -o "$resp" = Y ] && return 1
+    [ "$resp" = n -o "$resp" = N ] && return 0
+    confirm $default "$prompt"
+}
+
+dbfile="${1:-wilhelm.db}"
+if confirm y "Apply migrations to $dbfile?"; then
+    exit 1
+fi
+
+for migration in $(find migrations/ -name *.sql | sort); do
+    echo "Applying $migration"
+    cat migrations/preamble "$migration" | sqlite3 -bail -batch "$dbfile"
+done

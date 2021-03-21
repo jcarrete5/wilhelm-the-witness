@@ -1,3 +1,6 @@
 # Build
 wilhelm
 wilhelm.exe
+
+# Runtime data
+*.db
