@@ -2,16 +2,8 @@ package main
 
 import (
 	"errors"
-	"log"
-	"os"
-	"os/signal"
-	"time"
-
 	"github.com/bwmarrin/discordgo"
-)
-
-var (
-	listening = make(chan struct{}, 1)
+	"log"
 )
 
 var (
@@ -52,35 +44,4 @@ func witness(s *discordgo.Session, m *discordgo.MessageCreate, args ...string) e
 	go listen(s, vc)
 
 	return nil
-}
-
-func listen(s *discordgo.Session, vc *discordgo.VoiceConnection) {
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
-	timeout := time.NewTimer(10 * time.Minute)
-	disconnected := make(chan struct{})
-	stopHandling := s.AddHandler(func(s *discordgo.Session, m *discordgo.VoiceStateUpdate) {
-		if m.UserID == vc.UserID && m.ChannelID == "" {
-			log.Printf("we have been forcibly disconnected from '%s'\n", m.ChannelID)
-			disconnected <- struct{}{}
-		}
-	})
-
-	defer func() {
-		stopHandling()
-		if err := vc.Disconnect(); err != nil {
-			log.Println(err)
-		}
-		signal.Stop(quit)
-		timeout.Stop()
-		<-listening
-	}()
-
-	// TODO handle audio here
-
-	select {
-	case <-quit:
-	case <-timeout.C:
-	case <-disconnected:
-	}
 }

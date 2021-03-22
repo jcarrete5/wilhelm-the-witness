@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
+	"github.com/bwmarrin/discordgo"
 	"log"
 	"os"
 	"os/signal"
 	"strings"
-
-	"github.com/bwmarrin/discordgo"
+	"syscall"
 )
 
 type messageHandler = func(*discordgo.Session, *discordgo.MessageCreate, ...string) error
@@ -63,8 +63,8 @@ func main() {
 	stopHandling := discord.AddHandler(onMessage)
 
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	log.Println(<-quit)
 	stopHandling()
-	listening <- struct{}{}  // Wait for disconnect from voice
+	listening <- struct{}{} // Wait for disconnect from voice
 }
