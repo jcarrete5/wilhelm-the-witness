@@ -10,13 +10,13 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-type messageHandler = func(*discordgo.Session, *discordgo.MessageCreate, ...string)
+type messageHandler = func(*discordgo.Session, *discordgo.MessageCreate, ...string) error
 
 var (
 	token    = os.Getenv("TOKEN")
-	quit     = make(chan os.Signal)
 	commands = map[string]messageHandler{
 		"consent": consent,
+		"witness": witness,
 	}
 )
 
@@ -24,7 +24,6 @@ func init() {
 	if token == "" {
 		log.Fatalln("TOKEN environment variable not specified")
 	}
-	signal.Notify(quit, os.Interrupt)
 }
 
 func onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -32,7 +31,9 @@ func onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		rawcmd := m.Content[len(prefix):]
 		fields := strings.Fields(rawcmd)
 		if cmdFunc, ok := commands[fields[0]]; ok {
-			cmdFunc(s, m, fields[1:]...)
+			if err := cmdFunc(s, m, fields[1:]...); err != nil {
+				s.ChannelMessageSendReply(m.ChannelID, err.Error(), m.Reference())
+			}
 		} else {
 			log.Printf("Invalid command '%s' from %s\n", rawcmd, m.Author)
 			s.ChannelMessageSendReply(
@@ -51,6 +52,7 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	discord.StateEnabled = true
 	discord.Identify.Intents = discordgo.IntentsGuildVoiceStates |
 		discordgo.IntentsGuildMessages
 	if err := discord.Open(); err != nil {
@@ -58,7 +60,11 @@ func main() {
 	}
 	defer discord.Close()
 
-	discord.AddHandler(onMessage)
+	stopHandling := discord.AddHandler(onMessage)
 
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
 	log.Println(<-quit)
+	stopHandling()
+	listening <- struct{}{}  // Wait for disconnect from voice
 }
