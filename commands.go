@@ -2,8 +2,10 @@ package main
 
 import (
 	"errors"
-	dgo "github.com/bwmarrin/discordgo"
+	"fmt"
 	"log"
+
+	dgo "github.com/bwmarrin/discordgo"
 )
 
 var (
@@ -19,10 +21,11 @@ func consent(s *dgo.Session, m *dgo.MessageCreate, _ ...string) error {
 	return nil
 }
 
-func witness(s *dgo.Session, m *dgo.MessageCreate, args ...string) error {
+func witness(s *dgo.Session, m *dgo.MessageCreate, args ...string) (ret error) {
 	defer func() {
 		if recover() != nil {
 			<-listening
+			ret = fmt.Errorf("having trouble connecting. try again later")
 		}
 	}()
 
@@ -34,11 +37,11 @@ func witness(s *dgo.Session, m *dgo.MessageCreate, args ...string) error {
 
 	vs, err := s.State.VoiceState(m.GuildID, m.Author.ID)
 	if err != nil {
-		log.Panicln(err)
+		log.Panicln("error getting voice state: ", err)
 	}
 	vc, err := s.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, false)
 	if err != nil {
-		log.Panicln(err)
+		log.Panicln("error joining voice channel: ", err)
 	}
 
 	go listen(s, vc)

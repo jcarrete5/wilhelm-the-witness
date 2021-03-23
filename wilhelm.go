@@ -11,7 +11,7 @@ import (
 	dgo "github.com/bwmarrin/discordgo"
 )
 
-type messageHandler = func(*dgo.Session, *dgo.MessageCreate, ...string) error
+type messageHandler func(*dgo.Session, *dgo.MessageCreate, ...string) error
 
 var (
 	token     = os.Getenv("TOKEN")

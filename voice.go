@@ -19,7 +19,7 @@ var (
 	listening = make(chan struct{}, 1)
 )
 
-type Speaker struct {
+type speaker struct {
 	uid  string
 	ssrc uint32
 	file media.Writer
@@ -31,7 +31,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
 		quit         = make(chan os.Signal, 1)
 		disconnected = make(chan struct{})
 		closedFiles  = make(chan struct{})
-		newSpeaker   = make(chan *Speaker)
+		newSpeaker   = make(chan *speaker)
 	)
 
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
@@ -39,7 +39,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
 	stopHandling := s.AddHandler(func(s *dgo.Session, m *dgo.VoiceStateUpdate) {
 		if m.UserID == vc.UserID {
 			if m.ChannelID == "" {
-				log.Printf("we have been forcibly disconnected from '%s'\n",
+				log.Printf("forcibly disconnected from '%s'\n",
 					m.BeforeUpdate.ChannelID)
 				disconnected <- struct{}{}
 			} else {
@@ -50,14 +50,19 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
 	})
 	vc.AddHandler(func(vc *dgo.VoiceConnection, vs *dgo.VoiceSpeakingUpdate) {
 		// Experimentally, vs.Speaking is never false. Why?
-		if vs.Speaking && isConsenting(vs.UserID) {
-			// TODO network file storage
-			file, err := oggwriter.New(fmt.Sprintf("%s/%s.ogg", mediaRoot, vs.UserID),
-				48000, 2)
-			if err != nil {
-				log.Panicln(err)
+		if vs.Speaking {
+			consent := isConsenting(vs.UserID)
+			if consent {
+				// TODO network file storage
+				file, err := oggwriter.New(fmt.Sprintf("%s/%s.ogg", mediaRoot, vs.UserID),
+					48000, 2)
+				if err != nil {
+					log.Panicln(err)
+				}
+				newSpeaker <- &speaker{vs.UserID, uint32(vs.SSRC), file}
+			} else {
+				newSpeaker <- &speaker{vs.UserID, uint32(vs.SSRC), nil}
 			}
-			newSpeaker <- &Speaker{vs.UserID, uint32(vs.SSRC), file}
 		}
 	})
 
@@ -85,30 +90,36 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
 
 func handleVoice(
 	packets <-chan *dgo.Packet,
-	newSpeaker <-chan *Speaker,
+	newSpeaker <-chan *speaker,
 	closedFiles chan<- struct{},
 ) {
-	speakers := make(map[uint32]*Speaker)
+	speakers := make(map[uint32]*speaker)
 loop:
 	for p := range packets {
-		s, ok := speakers[p.SSRC]
+		spk, ok := speakers[p.SSRC]
 		for !ok {
-			if spk := <-newSpeaker; spk != nil {
-				speakers[spk.ssrc] = spk
-				s, ok = speakers[p.SSRC]
+			if s := <-newSpeaker; s != nil {
+				speakers[s.ssrc] = s
+				spk, ok = speakers[p.SSRC]
 			} else {
 				break loop
 			}
 		}
+		if spk.file == nil {
+			// Ignore non-consenting users
+			continue
+		}
 		rtpPacket := createRTPPacket(p)
-		if err := s.file.WriteRTP(rtpPacket); err != nil {
+		if err := spk.file.WriteRTP(rtpPacket); err != nil {
 			// TODO Consider marking the file as corrupt
 			log.Printf("failed to write RTP data for %v: %v\n", p.SSRC, err)
 		}
 	}
 	for _, s := range speakers {
-		if err := s.file.Close(); err != nil {
-			log.Println("failed to close file: ", err)
+		if s.file != nil {
+			if err := s.file.Close(); err != nil {
+				log.Println("failed to close file: ", err)
+			}
 		}
 	}
 	closedFiles <- struct{}{}

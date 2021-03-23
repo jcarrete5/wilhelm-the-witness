@@ -2,8 +2,10 @@ package main
 
 import (
 	"database/sql"
-	_ "github.com/mattn/go-sqlite3"
+	"errors"
 	"log"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 var (
@@ -20,7 +22,7 @@ func init() {
 
 func botPrefix(gid string) (prefix string) {
 	row := db.QueryRow("SELECT Prefix FROM Guilds WHERE GuildID = ?;", gid)
-	if err := row.Scan(&prefix); err == sql.ErrNoRows {
+	if err := row.Scan(&prefix); errors.Is(err, sql.ErrNoRows) {
 		if _, err := db.Exec("INSERT INTO Guilds(GuildID) VALUES (?);", gid); err != nil {
 			log.Panicln(err)
 		}
@@ -48,7 +50,7 @@ func toggleConsent(uid string) (status bool) {
 
 func isConsenting(uid string) (consent bool) {
 	row := db.QueryRow("SELECT Consent FROM Users WHERE UserID = ?;", uid)
-	if err := row.Scan(&consent); err == sql.ErrNoRows {
+	if err := row.Scan(&consent); errors.Is(err, sql.ErrNoRows) {
 		if _, err := db.Exec("INSERT INTO Users(UserID) VALUES (?);", uid); err != nil {
 			log.Panicln(err)
 		}
