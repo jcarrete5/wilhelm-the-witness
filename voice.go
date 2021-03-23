@@ -35,7 +35,6 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
 	)
 
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-
 	stopHandling := s.AddHandler(func(s *dgo.Session, m *dgo.VoiceStateUpdate) {
 		if m.UserID == vc.UserID {
 			if m.ChannelID == "" {
@@ -44,7 +43,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
 				disconnected <- struct{}{}
 			} else {
 				// TODO What should happen when we are moved to another channel?
-				log.Printf("we have moved to %s", m.ChannelID)
+				log.Printf("moved to %s", m.ChannelID)
 			}
 		}
 	})
@@ -79,6 +78,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
 		<-listening
 	}()
 
+	createConversation(vc.GuildID)
 	go handleVoice(vc.OpusRecv, newSpeaker, closedFiles)
 
 	select {

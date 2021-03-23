@@ -60,3 +60,15 @@ func isConsenting(uid string) (consent bool) {
 	}
 	return
 }
+
+func createConversation(gid string) (id int64) {
+	res, err := db.Exec("INSERT INTO Conversations(GuildID) VALUES (?);", gid)
+	if err != nil {
+		log.Panicln("failed to create a conversation: ", err)
+	}
+	id, err = res.LastInsertId()
+	if err != nil {
+		log.Panicln("failed to get conversation id: ", err)
+	}
+	return
+}
