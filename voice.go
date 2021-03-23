@@ -69,6 +69,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
 		signal.Stop(quit)
 		timeout.Stop()
 		close(vc.OpusRecv)
+		close(newSpeaker)
 		<-closedFiles
 		<-listening
 	}()
@@ -88,12 +89,16 @@ func handleVoice(
 	closedFiles chan<- struct{},
 ) {
 	speakers := make(map[uint32]*Speaker)
+loop:
 	for p := range packets {
 		s, ok := speakers[p.SSRC]
 		for !ok {
-			spk := <-newSpeaker
-			speakers[spk.ssrc] = spk
-			s, ok = speakers[p.SSRC]
+			if spk := <-newSpeaker; spk != nil {
+				speakers[spk.ssrc] = spk
+				s, ok = speakers[p.SSRC]
+			} else {
+				break loop
+			}
 		}
 		rtpPacket := createRTPPacket(p)
 		if err := s.file.WriteRTP(rtpPacket); err != nil {
