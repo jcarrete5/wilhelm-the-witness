@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-	"github.com/bwmarrin/discordgo"
+	dgo "github.com/bwmarrin/discordgo"
 	"log"
 )
 
@@ -10,7 +10,7 @@ var (
 	ErrWilhelmBusy = errors.New("wilhelm is busy right now, try again later")
 )
 
-func consent(s *discordgo.Session, m *discordgo.MessageCreate, _ ...string) error {
+func consent(s *dgo.Session, m *dgo.MessageCreate, _ ...string) error {
 	msg := "I didn't want to listen to you anyway 😔"
 	if toggleConsent(m.Author.ID) {
 		msg = "I will be your witness"
@@ -19,7 +19,7 @@ func consent(s *discordgo.Session, m *discordgo.MessageCreate, _ ...string) erro
 	return nil
 }
 
-func witness(s *discordgo.Session, m *discordgo.MessageCreate, args ...string) error {
+func witness(s *dgo.Session, m *dgo.MessageCreate, args ...string) error {
 	defer func() {
 		if recover() != nil {
 			<-listening
