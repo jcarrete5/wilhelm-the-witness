@@ -39,9 +39,21 @@ func toggleConsent(uid string) (status bool) {
 	if _, err := db.Exec(query, uid, uid); err != nil {
 		log.Panicln(err)
 	}
-	// For unknown reasons, this query cannot be combined with the previous
 	row := db.QueryRow("SELECT Consent FROM Users WHERE UserID = ?;", uid)
 	if err := row.Scan(&status); err != nil {
+		log.Panicln(err)
+	}
+	return
+}
+
+func isConsenting(uid string) (consent bool) {
+	row := db.QueryRow("SELECT Consent FROM Users WHERE UserID = ?;", uid)
+	if err := row.Scan(&consent); err == sql.ErrNoRows {
+		if _, err := db.Exec("INSERT INTO Users(UserID) VALUES (?);", uid); err != nil {
+			log.Panicln(err)
+		}
+		consent = isConsenting(uid)
+	} else if err != nil {
 		log.Panicln(err)
 	}
 	return

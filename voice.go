@@ -50,7 +50,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
 	})
 	vc.AddHandler(func(vc *dgo.VoiceConnection, vs *dgo.VoiceSpeakingUpdate) {
 		// Experimentally, vs.Speaking is never false. Why?
-		if vs.Speaking {
+		if vs.Speaking && isConsenting(vs.UserID) {
 			// TODO network file storage
 			file, err := oggwriter.New(fmt.Sprintf("%s/%s.ogg", mediaRoot, vs.UserID),
 				48000, 2)
