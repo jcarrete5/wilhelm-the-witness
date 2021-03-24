@@ -36,10 +36,10 @@ func dbBotPrefix(gid string) (prefix string) {
 
 func dbToggleConsent(uid string) (status bool) {
 	query := `
-	INSERT INTO Users(UserID) VALUES (?)
-	ON CONFLICT (UserID) DO UPDATE SET Consent = Consent != TRUE;`
+	INSERT OR IGNORE INTO Users(UserID) VALUES (?);
+	UPDATE Users SET Consent = Consent != TRUE WHERE UserID = ?;`
 
-	if _, err := db.Exec(query, uid); err != nil {
+	if _, err := db.Exec(query, uid, uid); err != nil {
 		log.Panicln(err)
 	}
 	row := db.QueryRow("SELECT Consent FROM Users WHERE UserID = ?;", uid)
