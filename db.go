@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -84,4 +85,21 @@ func dbCreateAudio(uid string, convId int64, uri string) (id int64) {
 		log.Panicln("failed to get audio id: ", err)
 	}
 	return
+}
+
+func dbEndAudio(audioId int64) {
+	t := time.Now().UTC().Format(time.RFC3339)
+	_, err := db.Exec("UPDATE Audio SET EndedAt = ? WHERE AudioID = ?;", t, audioId)
+	if err != nil {
+		log.Panicln("failed to set EndedAt for audio '", audioId, "': ", err)
+	}
+}
+
+func dbEndConversation(convId int64) {
+	t := time.Now().UTC().Format(time.RFC3339)
+	_, err := db.Exec("UPDATE Conversations SET EndedAt = ? WHERE ConversationID = ?;",
+		t, convId)
+	if err != nil {
+		log.Panicln("failed to set EndedAt for conversation '", convId, "': ", err)
+	}
 }

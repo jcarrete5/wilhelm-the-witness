@@ -89,6 +89,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64) {
 		timeout.Stop()
 		close(vc.OpusRecv)
 		close(newSpeaker)
+		dbEndConversation(convId)
 		<-closedFiles
 		<-listening
 	}()
@@ -133,14 +134,16 @@ loop:
 			log.Printf("failed to write RTP data for %v: %v\n", p.SSRC, err)
 		}
 	}
+
+	defer func() { closedFiles <- struct{}{} }()
 	for _, s := range speakers {
 		if s.file != nil {
 			if err := s.file.Close(); err != nil {
 				log.Println("failed to close file: ", err)
 			}
+			dbEndAudio(s.audioId)
 		}
 	}
-	closedFiles <- struct{}{}
 }
 
 func createRTPPacket(p *dgo.Packet) *rtp.Packet {
