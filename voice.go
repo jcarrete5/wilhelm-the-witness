@@ -93,7 +93,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64) {
 		<-listening
 	}()
 
-	go handleVoice(vc.OpusRecv, newSpeaker, closedFiles, convId)
+	go handleVoice(vc.OpusRecv, newSpeaker, closedFiles)
 
 	select {
 	case <-quit:
@@ -106,7 +106,6 @@ func handleVoice(
 	packets <-chan *dgo.Packet,
 	newSpeaker <-chan *speaker,
 	closedFiles chan<- struct{},
-	convId int64,
 ) {
 	// Consider checking consent status here instead of in the
 	// VoiceSpeakingUpdate handler so that toggling consent during a
