@@ -20,20 +20,20 @@ func init() {
 	}
 }
 
-func botPrefix(gid string) (prefix string) {
+func dbBotPrefix(gid string) (prefix string) {
 	row := db.QueryRow("SELECT Prefix FROM Guilds WHERE GuildID = ?;", gid)
 	if err := row.Scan(&prefix); errors.Is(err, sql.ErrNoRows) {
 		if _, err := db.Exec("INSERT INTO Guilds(GuildID) VALUES (?);", gid); err != nil {
 			log.Panicln(err)
 		}
-		prefix = botPrefix(gid)
+		prefix = dbBotPrefix(gid)
 	} else if err != nil {
 		log.Panicln(err)
 	}
 	return
 }
 
-func toggleConsent(uid string) (status bool) {
+func dbToggleConsent(uid string) (status bool) {
 	query := `
 	INSERT OR IGNORE INTO Users(UserID) VALUES (?);
 	UPDATE Users SET Consent = Consent != TRUE WHERE UserID = ?;`
@@ -48,27 +48,40 @@ func toggleConsent(uid string) (status bool) {
 	return
 }
 
-func isConsenting(uid string) (consent bool) {
+func dbIsConsenting(uid string) (consent bool) {
 	row := db.QueryRow("SELECT Consent FROM Users WHERE UserID = ?;", uid)
 	if err := row.Scan(&consent); errors.Is(err, sql.ErrNoRows) {
 		if _, err := db.Exec("INSERT INTO Users(UserID) VALUES (?);", uid); err != nil {
 			log.Panicln(err)
 		}
-		consent = isConsenting(uid)
+		consent = dbIsConsenting(uid)
 	} else if err != nil {
 		log.Panicln(err)
 	}
 	return
 }
 
-func createConversation(gid string) (id int64) {
+func dbCreateConversation(gid string) (id int64) {
 	res, err := db.Exec("INSERT INTO Conversations(GuildID) VALUES (?);", gid)
 	if err != nil {
-		log.Panicln("failed to create a conversation: ", err)
+		log.Panicln("failed to insert new conversation: ", err)
 	}
 	id, err = res.LastInsertId()
 	if err != nil {
 		log.Panicln("failed to get conversation id: ", err)
+	}
+	return
+}
+
+func dbCreateAudio(uid string, convId int64, uri string) (id int64) {
+	res, err := db.Exec("INSERT INTO Audio(UserID, ConversationID, URI) VALUES (?, ?, ?);",
+		uid, convId, uri)
+	if err != nil {
+		log.Panicln("failed to insert new audio: ", err)
+	}
+	id, err = res.LastInsertId()
+	if err != nil {
+		log.Panicln("failed to get audio id: ", err)
 	}
 	return
 }

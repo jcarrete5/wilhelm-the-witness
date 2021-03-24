@@ -14,7 +14,7 @@ var (
 
 func consent(s *dgo.Session, m *dgo.MessageCreate, _ ...string) error {
 	msg := "I didn't want to listen to you anyway 😔"
-	if toggleConsent(m.Author.ID) {
+	if dbToggleConsent(m.Author.ID) {
 		msg = "I will be your witness"
 	}
 	s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
@@ -44,7 +44,8 @@ func witness(s *dgo.Session, m *dgo.MessageCreate, args ...string) (ret error) {
 		log.Panicln("error joining voice channel: ", err)
 	}
 
-	go listen(s, vc)
+	convId := dbCreateConversation(vc.GuildID)
+	go listen(s, vc, convId)
 
 	return nil
 }

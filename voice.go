@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path"
 	"syscall"
 	"time"
 
@@ -20,12 +21,13 @@ var (
 )
 
 type speaker struct {
-	uid  string
-	ssrc uint32
-	file media.Writer
+	uid     string
+	ssrc    uint32
+	file    media.Writer
+	audioId int64
 }
 
-func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
+func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64) {
 	var (
 		timeout      = time.NewTimer(10 * time.Minute)
 		quit         = make(chan os.Signal, 1)
@@ -49,19 +51,32 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
 	})
 	vc.AddHandler(func(vc *dgo.VoiceConnection, vs *dgo.VoiceSpeakingUpdate) {
 		// Experimentally, vs.Speaking is never false. Why?
-		if vs.Speaking {
-			consent := isConsenting(vs.UserID)
-			if consent {
-				// TODO network file storage
-				file, err := oggwriter.New(fmt.Sprintf("%s/%s.ogg", mediaRoot, vs.UserID),
-					48000, 2)
+		if !vs.Speaking {
+			log.Printf("user '%s' not speaking\n", vs.UserID)
+			return
+		}
+
+		if dbIsConsenting(vs.UserID) {
+			log.Printf("user '%s' is speaking in channel '%s'\n", vs.UserID, vc.ChannelID)
+			// Copy mediaRoot to be modified locally
+			url := *mediaRoot
+			switch url.Scheme {
+			case "file":
+				url.Path = path.Join(url.Path, fmt.Sprintf("%v-%s.ogg", convId, vs.UserID))
+				writer, err := oggwriter.New(url.Path, 48000, 2)
 				if err != nil {
-					log.Panicln(err)
+					log.Panicln("failed to open ogg writer: ", err)
 				}
-				newSpeaker <- &speaker{vs.UserID, uint32(vs.SSRC), file}
-			} else {
-				newSpeaker <- &speaker{vs.UserID, uint32(vs.SSRC), nil}
+				audioId := dbCreateAudio(vs.UserID, convId, url.String())
+				newSpeaker <- &speaker{vs.UserID, uint32(vs.SSRC), writer, audioId}
+			default:
+				log.Printf("scheme %s not implemented", url.Scheme)
+				newSpeaker <- &speaker{uid: vs.UserID, ssrc: uint32(vs.SSRC)}
 			}
+		} else {
+			log.Printf("user '%s' is speaking in channel '%s' but did not give consent\n",
+				vs.UserID, vc.ChannelID)
+			newSpeaker <- &speaker{uid: vs.UserID, ssrc: uint32(vs.SSRC)}
 		}
 	})
 
@@ -78,8 +93,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection) {
 		<-listening
 	}()
 
-	createConversation(vc.GuildID)
-	go handleVoice(vc.OpusRecv, newSpeaker, closedFiles)
+	go handleVoice(vc.OpusRecv, newSpeaker, closedFiles, convId)
 
 	select {
 	case <-quit:
@@ -92,7 +106,12 @@ func handleVoice(
 	packets <-chan *dgo.Packet,
 	newSpeaker <-chan *speaker,
 	closedFiles chan<- struct{},
+	convId int64,
 ) {
+	// Consider checking consent status here instead of in the
+	// VoiceSpeakingUpdate handler so that toggling consent during a
+	// conversation will determine whether the packets are recorded or not.
+
 	speakers := make(map[uint32]*speaker)
 loop:
 	for p := range packets {
