@@ -12,7 +12,7 @@ import (
 	dgo "github.com/bwmarrin/discordgo"
 )
 
-type messageHandler func(*dgo.Session, *dgo.MessageCreate, ...string) error
+type messageHandler func(*dgo.Session, *dgo.MessageCreate, []string) error
 
 var (
 	token     = os.Getenv("TOKEN")
@@ -48,7 +48,7 @@ func onMessage(s *dgo.Session, m *dgo.MessageCreate) {
 		rawcmd := m.Content[len(prefix):]
 		fields := strings.Fields(rawcmd)
 		if cmdFunc, ok := commands[fields[0]]; ok {
-			if err := cmdFunc(s, m, fields[1:]...); err != nil {
+			if err := cmdFunc(s, m, fields[1:]); err != nil {
 				s.ChannelMessageSendReply(m.ChannelID, err.Error(), m.Reference())
 			}
 		} else {

@@ -27,9 +27,9 @@ type speaker struct {
 	audioId int64
 }
 
-func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64) {
+func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time.Duration) {
 	var (
-		timeout      = time.NewTimer(10 * time.Minute)
+		timeout      = time.NewTimer(duration)
 		quit         = make(chan os.Signal, 1)
 		disconnected = make(chan struct{})
 		closedFiles  = make(chan struct{})
