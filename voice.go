@@ -56,7 +56,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time
 		}
 	})
 	vc.AddHandler(func(vc *dgo.VoiceConnection, vs *dgo.VoiceSpeakingUpdate) {
-		log.Println("speaking update:", *vs)
+		log.Printf("speaking update: %+v\n", *vs)
 		// Experimentally, vs.Speaking is never false. Why?
 		if !vs.Speaking {
 			return

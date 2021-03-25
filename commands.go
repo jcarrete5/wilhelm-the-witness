@@ -25,9 +25,9 @@ func consent(s *dgo.Session, m *dgo.MessageCreate, _ []string) error {
 
 func witness(s *dgo.Session, m *dgo.MessageCreate, args []string) (ret error) {
 	defer func() {
-		if recover() != nil {
+		if msg := recover(); msg != nil {
 			<-listening
-			ret = fmt.Errorf("having trouble connecting. try again later")
+			ret = fmt.Errorf("%v", msg)
 		}
 	}()
 
@@ -49,11 +49,9 @@ func witness(s *dgo.Session, m *dgo.MessageCreate, args []string) (ret error) {
 	duration := 10 * time.Minute
 	if len(args) >= 1 {
 		if arg, err := strconv.Atoi(args[0]); err != nil {
-			log.Println("failed parsing duration '", args[0], "': ", err)
-		} else if newtime := time.Duration(arg) * time.Second; newtime > 1*time.Hour {
-			duration = 1 * time.Hour
-		} else if newtime < 1*time.Second {
-			duration = 1 * time.Second
+			log.Panicln("failed parsing duration '", args[0], "':", err)
+		} else if newtime := time.Duration(arg) * time.Second; newtime > 1*time.Hour || newtime < 1*time.Second {
+			log.Panicln("duration out of range: [1, 3600]")
 		} else {
 			duration = newtime
 		}
