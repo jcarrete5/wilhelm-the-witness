@@ -18,7 +18,8 @@ import (
 
 var (
 	// Semaphore signalling when we are listening
-	listening = make(chan bool, 1)
+	listening       = make(chan bool, 1)
+	voiceDisconnect = make(chan bool)
 )
 
 type speaker struct {
@@ -35,11 +36,10 @@ type speakerId struct {
 
 func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time.Duration) {
 	var (
-		timeout      = time.NewTimer(duration)
-		quit         = make(chan os.Signal, 1)
-		disconnected = make(chan bool)
-		voiceDone    = make(chan bool)
-		speakerIds   = make(chan *speakerId)
+		timeout    = time.NewTimer(duration)
+		quit       = make(chan os.Signal, 1)
+		voiceDone  = make(chan bool)
+		speakerIds = make(chan *speakerId)
 	)
 
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
@@ -48,20 +48,20 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time
 			if m.ChannelID == "" {
 				log.Printf("forcibly disconnected from '%s'\n",
 					m.BeforeUpdate.ChannelID)
-				disconnected <- true
+				voiceDisconnect <- true
 			} else {
 				// TODO What should happen when we are moved to another channel?
 				log.Printf("moved to %s", m.ChannelID)
 			}
 		}
 	})
-	vc.AddHandler(func(vc *dgo.VoiceConnection, vs *dgo.VoiceSpeakingUpdate) {
-		log.Printf("speaking update: %+v\n", *vs)
-		// Experimentally, vs.Speaking is never false. Why?
-		if !vs.Speaking {
+	vc.AddHandler(func(vc *dgo.VoiceConnection, vsu *dgo.VoiceSpeakingUpdate) {
+		log.Printf("speaking update: %+v\n", *vsu)
+		// Experimentally, vsu.Speaking is never false. Why?
+		if !vsu.Speaking {
 			return
 		}
-		speakerIds <- &speakerId{vs.UserID, uint32(vs.SSRC), dbIsConsenting(vs.UserID)}
+		speakerIds <- &speakerId{vsu.UserID, uint32(vsu.SSRC), dbIsConsenting(vsu.UserID)}
 	})
 
 	defer func() {
@@ -83,7 +83,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time
 	select {
 	case <-quit:
 	case <-timeout.C:
-	case <-disconnected:
+	case <-voiceDisconnect:
 	}
 }
 

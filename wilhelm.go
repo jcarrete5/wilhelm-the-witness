@@ -20,6 +20,7 @@ var (
 	commands  = map[string]messageHandler{
 		"consent": consent,
 		"witness": witness,
+		"adjourn": adjourn,
 	}
 )
 
