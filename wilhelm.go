@@ -83,5 +83,5 @@ func main() {
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	log.Println(<-quit)
 	stopHandling()
-	listening <- struct{}{} // Wait for voice to cleanup
+	listening <- true // Wait for voice to cleanup
 }

@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"net/url"
+	"os"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -65,24 +67,24 @@ func dbIsConsenting(uid string) (consent bool) {
 func dbCreateConversation(gid string) (id int64) {
 	res, err := db.Exec("INSERT INTO Conversations(GuildID) VALUES (?);", gid)
 	if err != nil {
-		log.Panicln("failed to insert new conversation: ", err)
+		log.Panicln("failed to insert new conversation:", err)
 	}
 	id, err = res.LastInsertId()
 	if err != nil {
-		log.Panicln("failed to get conversation id: ", err)
+		log.Panicln("failed to get conversation id:", err)
 	}
 	return
 }
 
-func dbCreateAudio(uid string, convId int64, uri string) (id int64) {
-	res, err := db.Exec("INSERT INTO Audio(UserID, ConversationID, URI) VALUES (?, ?, ?);",
-		uid, convId, uri)
+func dbCreateAudio(convId int64, uri string) (id int64) {
+	res, err := db.Exec("INSERT INTO Audio(ConversationID, URI) VALUES (?, ?);",
+		convId, uri)
 	if err != nil {
-		log.Panicln("failed to insert new audio: ", err)
+		log.Panicln("failed to insert new audio:", err)
 	}
 	id, err = res.LastInsertId()
 	if err != nil {
-		log.Panicln("failed to get audio id: ", err)
+		log.Panicln("failed to get audio id:", err)
 	}
 	return
 }
@@ -91,7 +93,7 @@ func dbEndAudio(audioId int64) {
 	t := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.Exec("UPDATE Audio SET EndedAt = ? WHERE AudioID = ?;", t, audioId)
 	if err != nil {
-		log.Panicln("failed to set EndedAt for audio '", audioId, "': ", err)
+		log.Panicln("failed to set EndedAt for audio '", audioId, "':", err)
 	}
 }
 
@@ -100,6 +102,30 @@ func dbEndConversation(convId int64) {
 	_, err := db.Exec("UPDATE Conversations SET EndedAt = ? WHERE ConversationID = ?;",
 		t, convId)
 	if err != nil {
-		log.Panicln("failed to set EndedAt for conversation '", convId, "': ", err)
+		log.Panicln("failed to set EndedAt for conversation '", convId, "':", err)
+	}
+}
+
+func dbAudioSetUserID(audioId int64, uid string) {
+	_, err := db.Exec("UPDATE Audio SET UserID = ? WHERE AudioID = ?;", uid, audioId)
+	if err != nil {
+		log.Panicln("failed to set UserID for audio '", audioId, "':", err)
+	}
+}
+
+func dbPurgeAudioData(audioId int64) {
+	var fileStr string
+	row := db.QueryRow("SELECT URI FROM Audio WHERE AudioID = ?;", audioId)
+	if err := row.Scan(&fileStr); err != nil {
+		log.Panicln("failed to get URI for audio '", audioId, "':", err)
+	}
+	if uri, err := url.Parse(fileStr); err != nil {
+		log.Panicln("failed to parse URI: ", err)
+	} else if err = os.Remove(uri.Path); err != nil {
+		log.Panicln("failed to remove audio '", uri.Path, "':", err)
+	}
+	_, err := db.Exec("DELETE FROM Audio WHERE AudioID = ?;", audioId)
+	if err != nil {
+		log.Panicln("failed to delete record from Audio '", audioId, "':", err)
 	}
 }

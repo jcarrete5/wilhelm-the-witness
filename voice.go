@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"path"
@@ -17,23 +18,28 @@ import (
 
 var (
 	// Semaphore signalling when we are listening
-	listening = make(chan struct{}, 1)
+	listening = make(chan bool, 1)
 )
 
 type speaker struct {
-	uid     string
 	ssrc    uint32
 	file    media.Writer
 	audioId int64
+}
+
+type speakerId struct {
+	uid     string
+	ssrc    uint32
+	consent bool
 }
 
 func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time.Duration) {
 	var (
 		timeout      = time.NewTimer(duration)
 		quit         = make(chan os.Signal, 1)
-		disconnected = make(chan struct{})
-		closedFiles  = make(chan struct{})
-		newSpeaker   = make(chan *speaker)
+		disconnected = make(chan bool)
+		voiceDone    = make(chan bool)
+		speakerIds   = make(chan *speakerId)
 	)
 
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
@@ -42,7 +48,7 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time
 			if m.ChannelID == "" {
 				log.Printf("forcibly disconnected from '%s'\n",
 					m.BeforeUpdate.ChannelID)
-				disconnected <- struct{}{}
+				disconnected <- true
 			} else {
 				// TODO What should happen when we are moved to another channel?
 				log.Printf("moved to %s", m.ChannelID)
@@ -50,34 +56,12 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time
 		}
 	})
 	vc.AddHandler(func(vc *dgo.VoiceConnection, vs *dgo.VoiceSpeakingUpdate) {
+		log.Println("speaking update:", *vs)
 		// Experimentally, vs.Speaking is never false. Why?
 		if !vs.Speaking {
-			log.Printf("user '%s' not speaking\n", vs.UserID)
 			return
 		}
-
-		if dbIsConsenting(vs.UserID) {
-			log.Printf("user '%s' is speaking in channel '%s'\n", vs.UserID, vc.ChannelID)
-			// Copy mediaRoot to be modified locally
-			url := *mediaRoot
-			switch url.Scheme {
-			case "file":
-				url.Path = path.Join(url.Path, fmt.Sprintf("%v-%s.ogg", convId, vs.UserID))
-				writer, err := oggwriter.New(url.Path, 48000, 2)
-				if err != nil {
-					log.Panicln("failed to open ogg writer: ", err)
-				}
-				audioId := dbCreateAudio(vs.UserID, convId, url.String())
-				newSpeaker <- &speaker{vs.UserID, uint32(vs.SSRC), writer, audioId}
-			default:
-				log.Printf("scheme %s not implemented", url.Scheme)
-				newSpeaker <- &speaker{uid: vs.UserID, ssrc: uint32(vs.SSRC)}
-			}
-		} else {
-			log.Printf("user '%s' is speaking in channel '%s' but did not give consent\n",
-				vs.UserID, vc.ChannelID)
-			newSpeaker <- &speaker{uid: vs.UserID, ssrc: uint32(vs.SSRC)}
-		}
+		speakerIds <- &speakerId{vs.UserID, uint32(vs.SSRC), dbIsConsenting(vs.UserID)}
 	})
 
 	defer func() {
@@ -88,13 +72,13 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time
 		signal.Stop(quit)
 		timeout.Stop()
 		close(vc.OpusRecv)
-		close(newSpeaker)
+		close(speakerIds)
 		dbEndConversation(convId)
-		<-closedFiles
+		<-voiceDone
 		<-listening
 	}()
 
-	go handleVoice(vc.OpusRecv, newSpeaker, closedFiles)
+	go handleVoice(vc.OpusRecv, speakerIds, voiceDone, convId)
 
 	select {
 	case <-quit:
@@ -105,44 +89,54 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time
 
 func handleVoice(
 	packets <-chan *dgo.Packet,
-	newSpeaker <-chan *speaker,
-	closedFiles chan<- struct{},
+	spkUpdate <-chan *speakerId,
+	done chan<- bool,
+	convId int64,
 ) {
-	// Consider checking consent status here instead of in the
-	// VoiceSpeakingUpdate handler so that toggling consent during a
-	// conversation will determine whether the packets are recorded or not.
+	defer func() {
+		done <- true
+	}()
 
-	speakers := make(map[uint32]*speaker)
-loop:
+	ignore := make(map[uint32]bool)
+	speakers := make(map[uint32]speaker)
 	for p := range packets {
-		spk, ok := speakers[p.SSRC]
-		for !ok {
-			if s := <-newSpeaker; s != nil {
-				speakers[s.ssrc] = s
-				spk, ok = speakers[p.SSRC]
-			} else {
-				break loop
-			}
-		}
-		if spk.file == nil {
-			// Ignore non-consenting users
+		if ignore[p.SSRC] {
 			continue
+		}
+		spk, ok := speakers[p.SSRC]
+		if !ok {
+			fileUrl := constructUri(convId, p.SSRC)
+			audioId := dbCreateAudio(convId, fileUrl.String())
+			writer, err := oggwriter.New(fileUrl.Path, 48000, 2)
+			if err != nil {
+				log.Panicln("failed to open ogg writer for '", fileUrl.Path, "':", err)
+			}
+			spk = speaker{p.SSRC, writer, audioId}
+			speakers[spk.ssrc] = spk
+		}
+		select {
+		case up := <-spkUpdate:
+			if spk := speakers[up.ssrc]; up.consent {
+				dbAudioSetUserID(spk.audioId, up.uid)
+			} else {
+				dbPurgeAudioData(spk.audioId)
+				ignore[spk.ssrc] = true
+				delete(speakers, spk.ssrc)
+				continue
+			}
+		default:
 		}
 		rtpPacket := createRTPPacket(p)
 		if err := spk.file.WriteRTP(rtpPacket); err != nil {
-			// TODO Consider marking the file as corrupt
-			log.Printf("failed to write RTP data for %v: %v\n", p.SSRC, err)
+			log.Printf("failed to write some RTP data for %v: %v\n", p.SSRC, err)
 		}
 	}
 
-	defer func() { closedFiles <- struct{}{} }()
 	for _, s := range speakers {
-		if s.file != nil {
-			if err := s.file.Close(); err != nil {
-				log.Println("failed to close file: ", err)
-			}
-			dbEndAudio(s.audioId)
+		if err := s.file.Close(); err != nil {
+			log.Println("failed to close file: ", err)
 		}
+		dbEndAudio(s.audioId) // Consider not tracked when the audio ends because it is similar
 	}
 }
 
@@ -157,4 +151,10 @@ func createRTPPacket(p *dgo.Packet) *rtp.Packet {
 		},
 		Payload: p.Opus,
 	}
+}
+
+func constructUri(convId int64, ssrc uint32) *url.URL {
+	url := *mediaRoot
+	url.Path = path.Join(url.Path, fmt.Sprintf("%v_%v.ogg", convId, ssrc))
+	return &url
 }

@@ -32,7 +32,7 @@ func witness(s *dgo.Session, m *dgo.MessageCreate, args []string) (ret error) {
 	}()
 
 	select {
-	case listening <- struct{}{}:
+	case listening <- true:
 	default:
 		return ErrWilhelmBusy
 	}
