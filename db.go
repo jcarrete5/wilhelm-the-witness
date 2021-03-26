@@ -129,3 +129,16 @@ func dbPurgeAudioData(audioId int64) {
 		log.Panicln("failed to delete record from Audio '", audioId, "':", err)
 	}
 }
+
+func dbGetConsent(uid string) (consent bool) {
+	row := db.QueryRow("SELECT Consent FROM Users WHERE UserID = ?;", uid)
+	if err := row.Scan(&consent); errors.Is(err, sql.ErrNoRows) {
+		if _, err := db.Exec("INSERT INTO Users(UserID) VALUES (?);", uid); err != nil {
+			log.Panicln("failed to insert new user:", err)
+		}
+		consent = dbGetConsent(uid)
+	} else if err != nil {
+		log.Panicf("failed to get consent status for '%s': %v", uid, err)
+	}
+	return
+}

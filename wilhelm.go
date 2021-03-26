@@ -21,6 +21,7 @@ var (
 		"consent": consent,
 		"witness": witness,
 		"adjourn": adjourn,
+		"check":   checkConsent,
 	}
 )
 

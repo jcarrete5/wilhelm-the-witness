@@ -23,6 +23,13 @@ func consent(s *dgo.Session, m *dgo.MessageCreate, _ []string) error {
 	return nil
 }
 
+func checkConsent(s *dgo.Session, m *dgo.MessageCreate, _ []string) error {
+	consent := dbGetConsent(m.Author.ID)
+	msg := fmt.Sprint("Consenting:", consent)
+	s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+	return nil
+}
+
 func witness(s *dgo.Session, m *dgo.MessageCreate, args []string) (ret error) {
 	defer func() {
 		if msg := recover(); msg != nil {
