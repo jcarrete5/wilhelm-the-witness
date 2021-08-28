@@ -13,14 +13,15 @@ import (
 	dgo "github.com/bwmarrin/discordgo"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3/pkg/media"
-	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 )
 
 var (
 	// Semaphore signalling when we are listening
-	listening       = make(chan bool, 1)
+	listening       = make(chan bool, 1) // TODO: Might want to make this per-guild
 	voiceDisconnect = make(chan bool)
 )
+
+type listenHandler func(packets <-chan *dgo.Packet, spkUpdate <-chan *speakerId, done chan<- bool)
 
 type speaker struct {
 	ssrc    uint32
@@ -34,7 +35,27 @@ type speakerId struct {
 	consent bool
 }
 
-func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time.Duration) {
+func joinVoiceFromMessage(s *dgo.Session, m *dgo.MessageCreate) (vc *dgo.VoiceConnection) {
+	vs, err := s.State.VoiceState(m.GuildID, m.Author.ID)
+	if err != nil {
+		log.Panicln("error getting voice state:", err)
+	}
+	vc, err = s.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, false)
+	defer func() {
+		if msg := recover(); msg != nil {
+			if err := vc.Disconnect(); err != nil {
+				log.Println("failed disconnecting from voice:", err)
+			}
+			panic(msg)
+		}
+	}()
+	if err != nil {
+		log.Panicln("error joining voice channel:", err)
+	}
+	return
+}
+
+func listen(s *dgo.Session, vc *dgo.VoiceConnection, duration time.Duration, handler listenHandler) {
 	var (
 		timeout    = time.NewTimer(duration)
 		quit       = make(chan os.Signal, 1)
@@ -73,70 +94,16 @@ func listen(s *dgo.Session, vc *dgo.VoiceConnection, convId int64, duration time
 		timeout.Stop()
 		close(vc.OpusRecv)
 		close(speakerIds)
-		dbEndConversation(convId)
-		<-voiceDone
+		<-voiceDone // Wait for handler to clean up
 		<-listening
 	}()
 
-	go handleVoice(vc.OpusRecv, speakerIds, voiceDone, convId)
+	go handler(vc.OpusRecv, speakerIds, voiceDone)
 
 	select {
 	case <-quit:
 	case <-timeout.C:
 	case <-voiceDisconnect:
-	}
-}
-
-func handleVoice(
-	packets <-chan *dgo.Packet,
-	spkUpdate <-chan *speakerId,
-	done chan<- bool,
-	convId int64,
-) {
-	defer func() {
-		done <- true
-	}()
-
-	ignore := make(map[uint32]bool)
-	speakers := make(map[uint32]speaker)
-	for p := range packets {
-		if ignore[p.SSRC] {
-			continue
-		}
-		spk, ok := speakers[p.SSRC]
-		if !ok {
-			fileUrl := constructUri(convId, p.SSRC)
-			audioId := dbCreateAudio(convId, fileUrl.String())
-			writer, err := oggwriter.New(fileUrl.Path, 48000, 2)
-			if err != nil {
-				log.Panicln("failed to open ogg writer for '", fileUrl.Path, "':", err)
-			}
-			spk = speaker{p.SSRC, writer, audioId}
-			speakers[spk.ssrc] = spk
-		}
-		select {
-		case up := <-spkUpdate:
-			if spk := speakers[up.ssrc]; up.consent {
-				dbAudioSetUserID(spk.audioId, up.uid)
-			} else {
-				dbPurgeAudioData(spk.audioId)
-				ignore[spk.ssrc] = true
-				delete(speakers, spk.ssrc)
-				continue
-			}
-		default:
-		}
-		rtpPacket := createRTPPacket(p)
-		if err := spk.file.WriteRTP(rtpPacket); err != nil {
-			log.Printf("failed to write some RTP data for %v: %v\n", p.SSRC, err)
-		}
-	}
-
-	for _, s := range speakers {
-		if err := s.file.Close(); err != nil {
-			log.Println("failed to close file: ", err)
-		}
-		dbEndAudio(s.audioId) // Consider not tracked when the audio ends because it is similar
 	}
 }
 

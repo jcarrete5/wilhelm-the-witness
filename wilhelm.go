@@ -18,10 +18,10 @@ var (
 	token     = os.Getenv("TOKEN")
 	mediaRoot *url.URL
 	commands  = map[string]messageHandler{
-		"consent": consent,
-		"witness": witness,
-		"adjourn": adjourn,
-		"check":   checkConsent,
+		"consent": cmdConsent,
+		"witness": cmdWitness,
+		"adjourn": cmdAdjourn,
+		"check":   cmdCheckConsent,
 	}
 )
 
